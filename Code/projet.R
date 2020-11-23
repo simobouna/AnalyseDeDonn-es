@@ -1,0 +1,142 @@
+# Adresse du dossier où vous travaillez
+setwd("/home/simo/I3/AnalyseDeDonnees/Code")
+# Packages utilisés dans la suite
+library(class)
+library(caret)
+library(ROCR)
+library("FactoMineR")
+library(PCAmixdata)
+library("ggplot2")
+library("GGally")
+
+# Supprimer toutes les variables
+rm(list=ls(all=TRUE))
+# Supprimer tous les graphiques déjà présents
+graphics.off()
+
+# Lecture des données d’apprentissage
+load("../Data/Data/Projets/spam_data_train.rda");
+names(data_train) <- c("x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16","x17","x18","x19","x20","x21","x22","x23","x24","x25","x26","x27","x28","x29","x30","x31","x32","x33","x34","x35","x36","x37","x38","x39","x40","x41","x42","x43","x44","x45","x46","x47","x48","x49","x50","x51","x52","x53","x54","x55","x56","x57","y")
+print(data_train)
+# Séparation des données et de la sortie
+data = data_train
+mean <- apply(data,2,mean)
+std <- apply(data,2,sd) #standard deviation
+stat <- rbind(mean,std)
+datanorm <- sweep(data,2,mean,"-")
+datanorm <- sweep(datanorm,2,std,"/")
+res <- PCA(datanorm,graph=FALSE,scale.unit=FALSE)
+
+print(data)
+summary(res)
+
+set.seed(42)
+rows <- sample(nrow(data_train))
+rows_train = rows[c(1:2070)]
+rows_test = rows[c(2071:2588)]
+data_train = data[rows_train,c(36,30,58)] 
+data_test = data[rows_test,c(36,30,58)]
+names(data_train) = c("x1","x2","y")
+names(data_test) = c("x1","x2","y")
+data_train_x = data.frame(data_train$x1,data_train$x2)
+data_test_x = data.frame(data_test$x1,data_test$x2)
+
+
+# Graphique des données (colorées par la sortie y)
+plot(data_train$x1,data_train$x2,col=data_train$y,pch=16)
+
+#5. Appliquer les k-plus proches voisins sur les données d’apprentissage :
+# nombre de voisins (par ex proche de la racine carré du nombre d’obs)
+num_of_neigh <- 10
+data_train_predict <- knn(train=data_train_x,test=data_train_x, cl=data_train$y,k=num_of_neigh)
+# Affichage des résultats (étoile)
+par(new=T)
+plot(data_train$x1,data_train$x2,col=data_train_predict,pch=8)
+# Calcul du taux d’erreur
+error_rate <- mean(data_train_predict != data_train$y)
+cat("error_rate using train data = ",error_rate)
+#6. Appliquer les k-plus proches voisins sur les données test :
+data_test_predict <- knn(train=data_train_x,test=data_test_x,cl=data_train$y,k=num_of_neigh)
+# Affichage des données (cercle)
+plot(data_train$x1,data_train$x2,col=data_train$y,pch=16)
+par(new=T)
+# Affichage des résultats (étoile)
+plot(data_test$x1,data_test$x2,col=data_test_predict,pch=8)
+# Affichage des vraies valeurs (triangle)
+par(new=T)
+plot(data_test$x1,data_test$x2,col=data_test$y,pch=2)
+# Calcul du taux d’erreur
+error_rate <- mean(data_test_predict != data_test$y)
+cat("error_rate using test data = ",error_rate)
+
+
+# Matrice de confusion
+confmat = table(data_test_predict,data_test$y)
+print("Confusion Matrix")
+print(confmat)
+# vrais positifs + vrais negatifs + faux positifs + faux négatifs
+TP = confmat[1,1]; TN = confmat[2,2]; FP = confmat[1,2]; FN = confmat[2,1];
+
+# Sensibilité (sensitivity ; TPR = true positive rate)
+TPR = TP/(TP+FN)
+cat("TPR",TPR,"\n")
+# Spécificité (specificity ; TNR = true negative rate)
+TNR = TN/(TN+FP)
+cat("TNR",TNR,"\n")
+# Précision (precision ; positive predictive value)
+PPV = TP/(TP+FP)
+cat("PPV",PPV,"\n")
+# se compare à la prévalence (prevalence)
+cat("Prev =",length(data_test$y[data_test$y==1])/length(data_test$y),"\n")
+
+cat("F-score = ",2 * TPR * PPV / (TPR+PPV),"\n")
+
+# Explication visuelle de l’importance de la valeur de k (nb de voisins)
+# Construction de la grille
+gridx1 <- seq(from=min(data_train$x1),to=max(data_train$x1),length.out=50)
+gridx2 <- seq(from=min(data_train$x2),to=max(data_train$x2),length.out=50)
+grid <- expand.grid(x1 = gridx1, x2 = gridx2)
+data_grid_x <- data.frame(x1=grid[,1],x2=grid[,2])
+
+# k plus proches voisins avec application sur les données de la grille
+num_of_neigh_grid <- c(1,5,10,15,20,30)
+par(mfrow=c(2,length(num_of_neigh_grid)/2))
+for (i in 1:length(num_of_neigh_grid))
+{
+  num_of_n <- num_of_neigh_grid[i]
+  data_g_pr <- knn(train=data_train_x,test=data_grid_x, cl=data_train$y,k=num_of_n)
+  plot(data_train$x1,data_train$x2,col=data_train$y,pch=16)
+  title(paste("num of neighbours = ",toString(num_of_n)))
+  par(new=T)
+  plot(data_grid_x$x1,data_grid_x$x2,col=data_g_pr,pch=8,cex=0.5,ann=FALSE)
+}
+
+
+# k plus proches voisins avec les probas
+data_test_predict_with_proba <- knn(train=data_train_x,test=data_test_x,cl=data_train$y,k=num_of_neigh,prob=TRUE)
+
+# Calcul du score
+score <- attr(data_test_predict_with_proba, "prob")
+score <- ifelse(data_test_predict_with_proba == "1", 1-score, score)
+
+pred_knn <- prediction(score, data_test$y)
+perf <- performance(pred_knn, "tpr", "fpr")
+plot(perf,colorize=TRUE)
+par(new=T)
+plot(c(0,1),c(0,1),type="l",ann=FALSE)
+
+# Aire sous la courbe
+AUC <- performance(pred_knn, "auc")@y.values[[1]]
+cat("AUC = ", AUC)
+
+# Choix du seuil
+result <- NULL
+threshold <- seq(0,1,len=11)
+for (s in threshold)
+{
+  test <- as.integer(score>=s)+1
+  result <- c(result,1-mean(test != data_test$y))
+}
+plot(threshold,result,type="l")
+cat("Meilleur seuil ", threshold[which.max(result)])
+
